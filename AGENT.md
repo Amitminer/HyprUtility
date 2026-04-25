@@ -19,9 +19,14 @@ HyprUtility/
 ├── hypr-cli/             # binary crate — hyprcli
 │   ├── Cargo.toml
 │   ├── README.md
-│   └── src/main.rs
+│   └── src/
+│       ├── main.rs
+│       └── commands/      # subcommand implementations
 └── crates/               # utility lib crates
-    └── prev-window/      # smart workspace toggle
+    ├── prev-window/      # smart workspace toggle
+    │   ├── Cargo.toml
+    │   └── src/lib.rs
+    └── layout/           # workspace snapshot and restore
         ├── Cargo.toml
         └── src/lib.rs
 ```
@@ -35,8 +40,8 @@ HyprUtility/
 | Language | Rust 2024                                                             |
 | Resolver | `3`                                                                   |
 | MSRV     | `1.85.0`                                                              |
-| IPC      | [hyprland-rs](https://github.com/hyprland-community/hyprland-rs) `0.3.13` |
-| CLI      | clap `4.5` (derive)                                                   |
+| IPC      | [hyprland-rs](https://github.com/hyprland-community/hyprland-rs) (git master) |
+| CLI      | clap `4.6` (derive)                                                   |
 | Errors   | anyhow `1.0.102`                                                      |
 
 ---
@@ -45,7 +50,7 @@ HyprUtility/
 
 ```toml
 [workspace]
-members  = ["hypr-cli", "crates/prev-window"]
+members  = ["crates/layout", "crates/prev-window", "hypr-cli"]
 resolver = "3"
 
 [workspace.package]
@@ -53,11 +58,14 @@ edition = "2024"
 version = "0.0.1"
 
 [workspace.dependencies]
-prev-window        = { path = "crates/prev-window" }
-clap               = { version = "4.5", features = ["derive"] }
 anyhow             = "1.0.102"
-hyprland           = "0.3.13"
+clap               = { version = "4.6.1", features = ["derive"] }
+hyprland           = { git = "https://github.com/hyprland-community/hyprland-rs", branch = "master" }
+layout             = { path = "crates/layout" }
+prev-window        = { path = "crates/prev-window" }
+serde              = { version = "1.0.228", features = ["derive"] }
 tokio              = { version = "1.52.1", features = ["full"] }
+toml               = "1.1.2"
 tracing            = "0.1.44"
 tracing-subscriber = "0.3.23"
 ```
@@ -72,7 +80,7 @@ individual crates, always use `.workspace = true`.
 ### `hypr-cli`
 - Only crate with a binary — `[[bin]] name = "hyprcli"`
 - Uses `clap` derive macros for subcommand parsing
-- No business logic — parse args, delegate to lib crates, that's it
+- No business logic — delegates to submodules in `src/commands/` which call lib crates
 - Owns error display via `anyhow::Result` in `main`
 
 ### `prev-window`
@@ -82,6 +90,16 @@ individual crates, always use `.workspace = true`.
   - `switch_prev()` — always go to previous workspace, no toggle logic
 - Uses `hyprland::data::Workspace::get_active()` to query current workspace
 - Uses `hyprland::dispatch::Dispatch::call()` for IPC
+
+### `layout`
+- Pure lib crate
+- Public API:
+  - `save(name: &str)` — snapshot windows to TOML
+  - `load(name: &str, delete_after: bool)` — restore windows via `exec` rules
+  - `list()` — print saved layouts
+  - `delete(name: &str)` — remove layout file
+- Persists to `$XDG_DATA_HOME/hyprutil/layouts/`
+- Uses `notify-send` for status updates
 
 ---
 
@@ -155,10 +173,15 @@ my-tool = { workspace = true }
 #[derive(Subcommand)]
 enum Commands {
     PrevWindow { id: Option<i32> },
+    Layout { action: LayoutAction },
     MyTool { /* args */ },
 }
 
-Commands::MyTool { .. } => my_tool::run(),
+// hypr-cli/src/commands/mod.rs
+pub mod my_tool;
+
+// hypr-cli/src/commands/my_tool.rs
+pub fn run() -> Result<()> { ... }
 ```
 
 No README for utility crates — only root and `hypr-cli` get docs.
@@ -187,4 +210,5 @@ No README for utility crates — only root and `hypr-cli` get docs.
 | Crate         | Status     | Description                    |
 |---------------|------------|--------------------------------|
 | `prev-window` | ✅ Done    | Smart workspace toggle         |
+| `layout`      | ✅ Done    | Workspace snapshot and restore |
 | _next tool_   | 📋 Backlog | Add as new `crates/` lib crate |

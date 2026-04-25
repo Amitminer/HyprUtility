@@ -1,15 +1,16 @@
 use anyhow::Result;
 use hyprland::data::Workspace;
 use hyprland::dispatch::{Dispatch, DispatchType, WorkspaceIdentifierWithSpecial};
-use hyprland::prelude::*;
+use hyprland::shared::HyprDataActive;
 
 /// Smart workspace switcher with toggle behaviour.
 ///
-/// - If **not** on `target_id` → go there
-/// - If **already** on `target_id` → bounce back to previous workspace
+/// - If current workspace is **not** `target_id` → switches to `target_id`.
+/// - If current workspace is **already** `target_id` → switches back to the previous workspace.
 ///
 /// # Arguments
-/// * `target_id` - workspace ID to switch to (usually 1–9)
+///
+/// * `target_id` - The workspace ID to switch to (e.g., 0-9).
 pub fn smart_switch(target_id: i32) -> Result<()> {
     let active = Workspace::get_active()?;
 
@@ -30,8 +31,7 @@ pub fn smart_switch(target_id: i32) -> Result<()> {
 
 /// Unconditionally switches to the previous workspace.
 ///
-/// No toggle logic — always goes back regardless of where you are.
-/// Useful as a plain "go back" keybind.
+/// This does not include any toggle logic; it always invokes the `workspace previous` dispatch.
 pub fn switch_prev() -> Result<()> {
     Dispatch::call(DispatchType::Workspace(
         WorkspaceIdentifierWithSpecial::Previous,

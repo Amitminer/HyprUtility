@@ -1,7 +1,8 @@
 # HyprUtility
 
-My personal collection of Hyprland utilities written in Rust, built for my own
-Arch Linux + Hyprland setup. Not a general-purpose tool — just things I needed
+My personal collection of Hyprland utilities written in Rust using 
+[hyprland-rs](https://github.com/hyprland-community/hyprland-rs) for IPC. 
+Built for my own Arch Linux + Hyprland setup — just things I needed 
 that didn't exist or weren't exactly how I wanted them.
 
 More utilities will be added over time as I find more things to automate or improve
@@ -15,7 +16,8 @@ HyprUtility/
 ├── Cargo.lock
 ├── hypr-cli/             # binary crate — hyprcli
 └── crates/               # utility lib crates
-    └── prev-window/      # smart workspace toggle
+    ├── prev-window/      # smart workspace toggle
+    └── layout/           # workspace snapshot and restore
 ```
 
 ## Utilities
@@ -23,15 +25,7 @@ HyprUtility/
 | Crate          | Description                                              |
 |----------------|----------------------------------------------------------|
 | `prev-window`  | Smart workspace toggle — go to target or bounce back     |
-
-## Stack
-
-| Field    | Value         |
-|----------|---------------|
-| Language | Rust 2024     |
-| IPC      | [hyprland-rs](https://github.com/hyprland-community/hyprland-rs) |
-| CLI      | clap (derive) |
-| Errors   | anyhow        |
+| `layout`       | Workspace snapshot and restore — preserve your workflows |
 
 ## Building
 
@@ -48,7 +42,7 @@ cargo install --path hypr-cli
 
 ## Environment
 
-If running via uwsm, add to your `~/.zshrc`:
+If running via `uwsm`, ensure these are in your `~/.zshrc`:
 
 ```bash
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
@@ -60,25 +54,14 @@ if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
 fi
 ```
 
-## Adding a New Utility
+## Development
 
-```bash
-# 1. scaffold
-cargo new crates/my-tool --lib
+### Adding a new utility
 
-# 2. add to workspace members in root Cargo.toml
-# 3. add to [workspace.dependencies]
-#    my-tool = { path = "crates/my-tool" }
-# 4. pull into hypr-cli Cargo.toml
-#    my-tool = { workspace = true }
-# 5. add a subcommand in hypr-cli/src/main.rs
-```
-
-## Stack
-
-| Field    | Value    |
-|----------|----------|
-| Language | Rust     |
-| Edition  | 2024     |
-| Resolver | 3        |
-| MSRV     | 1.85.0   |
+1. **Scaffold**: Create a new lib crate: `cargo new crates/<name> --lib`
+2. **Workspace**: Add to `members` and `[workspace.dependencies]` in root `Cargo.toml`.
+3. **CLI**: Add the dependency to `hypr-cli/Cargo.toml`.
+4. **Dispatch**: 
+    - Add a subcommand to `Commands` in `hypr-cli/src/main.rs`.
+    - Implement the handler in `hypr-cli/src/commands/<name>.rs`.
+    - Register the module in `hypr-cli/src/commands/mod.rs`.

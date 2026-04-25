@@ -19,6 +19,14 @@ hyprcli prev-window           # go to previous workspace
 hyprcli prev-window --id <n>  # go to <n>, or bounce back if already there
 ```
 
+#### `layout`
+```bash
+hyprcli layout save <name>    # snapshot current windows
+hyprcli layout load <name>    # restore windows from snapshot
+hyprcli layout list           # list saved layouts
+hyprcli layout delete <name>  # remove a layout
+```
+
 ## Wiring a new utility
 
 ```toml
@@ -32,16 +40,19 @@ my-tool = { workspace = true }
 #[derive(Subcommand)]
 enum Commands {
     PrevWindow { id: Option<i32> },
+    Layout { action: LayoutAction },
     MyTool { /* args */ },
 }
 
-Commands::MyTool { .. } => my_tool::run(),
+// src/commands/mod.rs
+pub mod my_tool;
 ```
 
 ## Deps
 
-| Crate         | Why                  |
-|---------------|----------------------|
-| `clap`        | arg parsing (derive) |
-| `anyhow`      | error propagation    |
-| `prev-window` | workspace toggle     |
+| Crate         | Why                       |
+|---------------|---------------------------|
+| `clap`        | arg parsing (derive)      |
+| `anyhow`      | error propagation         |
+| `prev-window` | workspace toggle          |
+| `layout`      | workspace snapshot/restore |
