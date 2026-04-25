@@ -1,0 +1,8 @@
+[package]
+edition.workspace = true
+name = "prev-window"
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hyprland.workspace = true

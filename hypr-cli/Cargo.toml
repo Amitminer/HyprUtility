@@ -1,0 +1,14 @@
+[package]
+edition.workspace = true
+name = "hypr-cli"
+version.workspace = true
+
+[[bin]]
+name = "hyprcli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+prev-window = { workspace = true }
+tokio = { workspace = true }
