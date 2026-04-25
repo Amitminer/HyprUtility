@@ -94,12 +94,16 @@ individual crates, always use `.workspace = true`.
 ### `layout`
 - Pure lib crate
 - Public API:
-  - `save(name: &str)` — snapshot windows to TOML
+  - `save(name: &str)` — snapshot windows to TOML (excludes special workspaces)
   - `load(name: &str, delete_after: bool)` — restore windows via `exec` rules
-  - `list()` — print saved layouts
+  - `list()` — print saved layouts with workspace/app breakdown
   - `delete(name: &str)` — remove layout file
+- Features:
+  - **Class Map**: Resolves window classes to launch commands via `~/.config/hyprutil/class_map.toml`.
+  - **Sequential Launch**: Uses 800ms delay between launches to prevent workspace rule races.
+  - **Deduplication**: Skips apps already running on their target workspace.
 - Persists to `$XDG_DATA_HOME/hyprutil/layouts/`
-- Uses `notify-send` for status updates
+- Uses `notify-send` for status updates (3s duration)
 
 ---
 

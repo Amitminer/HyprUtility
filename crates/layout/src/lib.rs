@@ -1,63 +1,107 @@
 use anyhow::{Context, Result};
 use hyprland::data::Clients;
+use hyprland::dispatch::{Dispatch, DispatchType};
 use hyprland::shared::HyprData;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
-use tokio::process::Command;
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-/// A saved layout — map of workspace id → list of app classes
+/// A saved layout — map of workspace id → list of app classes.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Layout {
-    /// The unique name of the layout.
     pub name: String,
-    /// A map where the key is the workspace ID and the value is a list of application classes.
     pub workspaces: BTreeMap<i32, Vec<String>>,
 }
 
-// ── Paths ────────────────────────────────────────────────────────────────────
-
-/// Returns the directory where layout files are stored.
+/// User-defined class → launch command overrides.
 ///
-/// If `XDG_DATA_HOME` is set, it uses `$XDG_DATA_HOME/hyprutil/layouts`.
-/// Otherwise, it defaults to `$HOME/.local/share/hyprutil/layouts`.
-fn layouts_dir() -> Result<PathBuf> {
+/// Only needed when the window class doesn't match the launch command.
+/// Example: `"com.mitchellh.ghostty" = "ghostty"`
+///
+/// Falls back to the raw class name if no mapping found.
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ClassMap {
+    #[serde(default)]
+    pub map: BTreeMap<String, String>,
+}
+
+// ── Paths ─────────────────────────────────────────────────────────────────────
+
+fn config_dir() -> PathBuf {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(std::env::var("HOME").expect("HOME not set")).join(".config")
+        });
+    base.join("hyprutil")
+}
+
+fn data_dir() -> PathBuf {
     let base = std::env::var("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").expect("HOME not set");
-            PathBuf::from(home).join(".local/share")
+            PathBuf::from(std::env::var("HOME").expect("HOME not set")).join(".local/share")
         });
-    let dir = base.join("hyprutil/layouts");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+    base.join("hyprutil/layouts")
 }
 
-/// Returns the full path to a layout file given its name.
-///
-/// # Arguments
-///
-/// * `name` - The name of the layout (without extension).
 fn layout_path(name: &str) -> Result<PathBuf> {
-    Ok(layouts_dir()?.join(format!("{name}.toml")))
+    let dir = data_dir();
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(format!("{name}.toml")))
+}
+
+fn class_map_path() -> PathBuf {
+    config_dir().join("class_map.toml")
+}
+
+// ── Class map ─────────────────────────────────────────────────────────────────
+
+/// Load the class → command map from `~/.config/hyprutil/class_map.toml`.
+/// Returns an empty map silently if the file doesn't exist.
+fn load_class_map() -> ClassMap {
+    let path = class_map_path();
+
+    // DEBUG
+    println!("[DEBUG] loading class_map from: {}", path.display());
+
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        // DEBUG
+        println!("[DEBUG] class_map not found — falling back to raw class names");
+        return ClassMap::default();
+    };
+
+    // DEBUG
+    println!("[DEBUG] class_map: {content}");
+
+    toml::from_str(&content).unwrap_or_default()
+}
+
+/// Resolve a Hyprland window class to its launch command.
+///
+/// Resolution order:
+/// 1. Check `class_map.toml` for an explicit override
+/// 2. Fall back to the raw class name as-is
+///
+/// Apps where class == command (e.g. `discord`, `spotify`) work with zero
+/// config. Only add entries to `class_map.toml` for mismatches like
+/// `"com.mitchellh.ghostty" = "ghostty"`.
+fn resolve_class<'a>(class: &'a str, map: &'a ClassMap) -> &'a str {
+    map.map.get(class).map(|s| s.as_str()).unwrap_or(class)
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
-/// Sends a desktop notification using `notify-send`.
-///
-/// # Arguments
-///
-/// * `title` - The title of the notification.
-/// * `body` - The body message of the notification.
+/// Send a desktop notification via `notify-send`.
 fn notify(title: &str, body: &str) {
     let _ = std::process::Command::new("notify-send")
         .args([
             "--app-name=HyprUtility",
             "--icon=preferences-desktop",
             "--urgency=normal",
+            "--expire-time=3000",
             title,
             body,
         ])
@@ -68,20 +112,19 @@ fn notify(title: &str, body: &str) {
 
 /// Snapshot all open windows grouped by workspace, write to a TOML layout file.
 ///
-/// It queries Hyprland for all active clients, filters those without a class,
-/// groups them by workspace ID, and saves the resulting layout to disk.
+/// - Skips clients with no class (bars, overlays, etc.)
+/// - Skips special workspaces (negative IDs)
+/// - Deduplicates apps per workspace
 ///
 /// # Arguments
-///
 /// * `name` - The name to save the layout as.
 pub fn save(name: &str) -> Result<()> {
     let clients = Clients::get()?;
-
     let mut workspaces: BTreeMap<i32, Vec<String>> = BTreeMap::new();
 
     for client in clients.iter() {
-        // skip clients with no class (bars, overlays, etc.)
-        if client.class.is_empty() {
+        // skip bars, overlays, and special workspaces (negative IDs)
+        if client.class.is_empty() || client.workspace.id < 0 {
             continue;
         }
         workspaces
@@ -90,7 +133,7 @@ pub fn save(name: &str) -> Result<()> {
             .push(client.class.clone());
     }
 
-    // deduplicate apps per workspace — same app can have multiple windows
+    // deduplicate — same app can have multiple windows on one workspace
     for apps in workspaces.values_mut() {
         apps.dedup();
     }
@@ -102,7 +145,6 @@ pub fn save(name: &str) -> Result<()> {
         name: name.to_string(),
         workspaces,
     };
-
     let toml = toml::to_string_pretty(&layout)?;
     std::fs::write(layout_path(name)?, toml)?;
 
@@ -110,6 +152,7 @@ pub fn save(name: &str) -> Result<()> {
         &format!("Layout '{name}' saved"),
         &format!("{workspace_count} workspaces · {app_count} apps"),
     );
+    println!("saved '{name}' — {workspace_count} workspaces, {app_count} apps");
 
     Ok(())
 }
@@ -118,55 +161,99 @@ pub fn save(name: &str) -> Result<()> {
 
 /// Launch all apps from a saved layout, each on their saved workspace.
 ///
-/// Uses `[workspace N silent]` dispatch rule so apps open on the right workspace
-/// without switching focus. Launches all workspaces concurrently.
+/// - Skips apps already open on their saved workspace
+/// - Resolves class names via `class_map.toml`, falls back to raw class
+/// - Uses `[workspace N silent]` dispatch rule via hyprland-rs IPC
+/// - Launches apps **sequentially** with a delay between each — concurrent
+///   launching causes workspace rule races, especially for daemon-based apps
+///   like ghostty where the first launch starts the daemon and subsequent
+///   ones connect to it, breaking Hyprland's PID-based workspace tracking
+/// - Optionally deletes the layout file after loading (for session restore)
 ///
 /// # Arguments
-///
 /// * `name` - The name of the layout to load.
-/// * `delete_after` - If true, the layout file will be deleted after loading.
+/// * `delete_after` - If true, deletes the layout file after loading.
 ///
 /// # Note
-///
-/// Browsers (Zen, Firefox, Chromium) may ignore the workspace rule if
-/// already running — a known Hyprland limitation.
+/// Chromium-based browsers may still open on the wrong workspace — they clear
+/// their process environment, making PID tracking impossible for Hyprland.
 pub async fn load(name: &str, delete_after: bool) -> Result<()> {
     let path = layout_path(name)?;
     let content =
         std::fs::read_to_string(&path).with_context(|| format!("Layout '{name}' not found"))?;
-    let layout: Layout = toml::from_str(&content)?;
+    let layout: Layout =
+        toml::from_str(&content).with_context(|| format!("Failed to parse layout '{name}'"))?;
 
+    let class_map = load_class_map();
     let workspace_count = layout.workspaces.len();
     let app_count: usize = layout.workspaces.values().map(|v| v.len()).sum();
+
+    // DEBUG
+    println!("[DEBUG] layout: {name}, {workspace_count} workspaces, {app_count} apps");
+    println!("[DEBUG] class_map entries: {:?}", class_map.map);
 
     notify(
         &format!("Loading layout '{name}'"),
         &format!("{workspace_count} workspaces · {app_count} apps"),
     );
 
-    // launch all workspaces concurrently
-    let mut handles = vec![];
+    // fetch currently open windows to skip already-running apps
+    // DEBUG
+    println!("[DEBUG] fetching active clients...");
+    let active_clients = Clients::get()?;
 
+    // store as (workspace_id, raw_class) — compare against raw class
+    // since that's what Hyprland reports, not the resolved command
+    let open_classes: HashSet<(i32, String)> = active_clients
+        .iter()
+        .map(|c| (c.workspace.id, c.class.clone()))
+        .collect();
+
+    // DEBUG
+    println!("[DEBUG] currently open: {:?}", open_classes);
+
+    // launch sequentially — concurrent launches cause workspace rule races,
+    // especially for ghostty whose daemon opens windows out-of-process,
+    // breaking Hyprland's PID-based workspace rule tracking
     for (ws_id, apps) in layout.workspaces {
-        let handle = tokio::spawn(async move {
-            for app in apps {
-                // [workspace N silent] opens the app on workspace N without switching
-                let rule = format!("[workspace {ws_id} silent]");
-                let _ = Command::new("hyprctl")
-                    .args(["dispatch", "exec", &format!("{rule} {app}")])
-                    .output()
-                    .await;
+        let resolved: Vec<(String, String)> = apps
+            .iter()
+            .map(|class| (class.clone(), resolve_class(class, &class_map).to_string()))
+            .collect();
+
+        for (raw_class, cmd) in resolved {
+            // skip if already open on this exact workspace
+            // compare raw class, not resolved cmd — hyprland reports raw class
+            if open_classes.contains(&(ws_id, raw_class.clone())) {
+                // DEBUG
+                println!("[DEBUG] skipping '{raw_class}' on ws{ws_id} — already open");
+                continue;
             }
-        });
-        handles.push(handle);
+
+            // [workspace N silent] — open on workspace N without switching focus
+            let exec_arg = format!("[workspace {ws_id} silent] {cmd}");
+
+            // DEBUG
+            println!("[DEBUG] dispatching: '{exec_arg}'");
+
+            match Dispatch::call_async(DispatchType::Exec(&exec_arg)).await {
+                Ok(_) => println!("  → ws{ws_id}: {cmd}"),
+                Err(e) => eprintln!("  ✗ failed '{cmd}' on ws{ws_id}: {e}"),
+            }
+
+            // wait for app to register with Hyprland before firing the next one
+            // 800ms prevents workspace rule races between sequential launches
+            tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+        }
     }
 
-    for handle in handles {
-        handle.await?;
-    }
+    println!("done.");
+    notify(&format!("Layout '{name}' loaded"), "");
 
     if delete_after {
-        std::fs::remove_file(path)?;
+        std::fs::remove_file(&path)?;
+        // DEBUG
+        println!("[DEBUG] deleted layout file after load");
     }
 
     Ok(())
@@ -174,20 +261,25 @@ pub async fn load(name: &str, delete_after: bool) -> Result<()> {
 
 // ── List ──────────────────────────────────────────────────────────────────────
 
-/// Print all saved layouts with their workspace/app counts to stdout.
+/// Print all saved layouts with their workspace/app breakdown to stdout.
 pub fn list() -> Result<()> {
-    let dir = layouts_dir()?;
-    let mut found = false;
+    let dir = data_dir();
+    std::fs::create_dir_all(&dir)?;
 
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
+    let mut entries: Vec<_> = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("toml"))
+        .collect();
 
-        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
-            continue;
-        }
+    entries.sort_by_key(|e| e.file_name());
 
-        let content = std::fs::read_to_string(&path)?;
+    if entries.is_empty() {
+        println!("no layouts saved.");
+        return Ok(());
+    }
+
+    for entry in entries {
+        let content = std::fs::read_to_string(entry.path())?;
         if let Ok(layout) = toml::from_str::<Layout>(&content) {
             let app_count: usize = layout.workspaces.values().map(|v| v.len()).sum();
             println!(
@@ -196,12 +288,10 @@ pub fn list() -> Result<()> {
                 layout.workspaces.len(),
                 app_count
             );
+            for (ws, apps) in &layout.workspaces {
+                println!("  ws{ws}: {}", apps.join(", "));
+            }
         }
-        found = true;
-    }
-
-    if !found {
-        println!("No layouts saved.");
     }
 
     Ok(())
@@ -212,13 +302,13 @@ pub fn list() -> Result<()> {
 /// Delete a saved layout by name.
 ///
 /// # Arguments
-///
 /// * `name` - The name of the layout to delete.
 pub fn delete(name: &str) -> Result<()> {
     let path = layout_path(name)?;
     std::fs::remove_file(&path).with_context(|| format!("Layout '{name}' not found"))?;
 
     notify(&format!("Layout '{name}' deleted"), "");
+    println!("deleted '{name}'");
 
     Ok(())
 }

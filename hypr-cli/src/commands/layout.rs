@@ -5,9 +5,9 @@ use clap::Subcommand;
 #[derive(Subcommand)]
 pub enum LayoutAction {
     /// Snapshot current workspaces and save as a named layout.
-    Save { 
+    Save {
         /// The name to save the layout as.
-        name: String 
+        name: String,
     },
     /// Launch all apps from a saved layout on their saved workspaces.
     Load {
@@ -20,9 +20,9 @@ pub enum LayoutAction {
     /// List all saved layouts.
     List,
     /// Delete a saved layout.
-    Delete { 
+    Delete {
         /// The name of the layout to delete.
-        name: String 
+        name: String,
     },
 }
 

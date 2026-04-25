@@ -21,10 +21,11 @@ hyprcli prev-window --id <n>  # go to <n>, or bounce back if already there
 
 #### `layout`
 ```bash
-hyprcli layout save <name>    # snapshot current windows
-hyprcli layout load <name>    # restore windows from snapshot
-hyprcli layout list           # list saved layouts
-hyprcli layout delete <name>  # remove a layout
+hyprcli layout save <name>          # snapshot current windows
+hyprcli layout load <name>          # restore windows from snapshot
+hyprcli layout load <name> --delete # load then delete (session restore)
+hyprcli layout list                 # list saved layouts with breakdown
+hyprcli layout delete <name>        # remove a layout
 ```
 
 ## Wiring a new utility
