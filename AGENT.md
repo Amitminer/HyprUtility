@@ -156,6 +156,13 @@ cargo install --path hypr-cli     # install hyprcli to $PATH
 
 ## Adding a New Utility
 
+### Recommended: Scaffolding Script
+```bash
+./scripts/scaffold.sh <utility-name>
+```
+The script automates crate creation, workspace registration, and CLI boilerplate.
+
+### Alternative: Manual Setup
 ```bash
 cargo new crates/my-tool --lib
 ```

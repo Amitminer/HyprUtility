@@ -58,6 +58,13 @@ fi
 
 ### Adding a new utility
 
+#### Method 1: Scaffolding Script (Recommended)
+Automatically set up a new utility:
+```bash
+./scripts/scaffold.sh <utility-name>
+```
+
+#### Method 2: Manual Setup
 1. **Scaffold**: Create a new lib crate: `cargo new crates/<name> --lib`
 2. **Workspace**: Add to `members` and `[workspace.dependencies]` in root `Cargo.toml`.
 3. **CLI**: Add the dependency to `hypr-cli/Cargo.toml`.
