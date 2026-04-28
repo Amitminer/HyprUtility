@@ -85,6 +85,7 @@ individual crates, always use `.workspace = true`.
 
 ### `prev-window`
 - Pure lib crate — no `main.rs`
+- **Note:** Redundant if `bind:workspace_back_and_forth = true` is set in Hyprland config.
 - Public API:
   - `smart_switch(id: i32)` — go to `id`, or bounce to previous if already there
   - `switch_prev()` — always go to previous workspace, no toggle logic

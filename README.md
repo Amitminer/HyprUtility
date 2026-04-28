@@ -27,6 +27,8 @@ HyprUtility/
 | `prev-window`  | Smart workspace toggle — go to target or bounce back     |
 | `layout`       | Workspace snapshot and restore — preserve your workflows |
 
+*(Note: I just realized `bind:workspace_back_and_forth = true` exists for quick toggling workspaces, which makes `prev-window` pretty much useless. Lmfao, but anyways.)*
+
 ## Building
 
 ```bash
